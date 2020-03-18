@@ -1,10 +1,14 @@
 package closer_chan
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
 type writer struct {
-	out    chan int
-	closer chan struct{}
+	out      chan int
+	closer   chan struct{}
+	outMutex sync.Mutex
 }
 
 func (w *writer) Init() <-chan int {
@@ -15,24 +19,36 @@ func (w *writer) Init() <-chan int {
 }
 
 func (w *writer) Write() {
-	defer fmt.Println("write successfully")
 	for i := 1; i <= 3; i++ {
 		select {
-		case w.out <- i:
 		case <-w.closer:
+			return
+		default:
+		}
+
+		w.outMutex.Lock()
+		select {
+		case w.out <- i:
+			w.outMutex.Unlock()
+		case <-w.closer:
+			w.outMutex.Unlock()
+			return
 		}
 	}
+
+	return
 }
 
 func (w *writer) Close() {
 	close(w.closer)
+	w.outMutex.Lock()
 	close(w.out)
+	w.outMutex.Unlock()
 }
 
 type reader struct{}
 
 func (r *reader) Read(input <-chan int) {
-	defer fmt.Println("read successfully")
 	for elm := range input {
 		fmt.Printf("%d\n", elm)
 	}
